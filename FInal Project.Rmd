@@ -1,0 +1,138 @@
+---
+title: "NYPDShootingIncRMD"
+author: "Greg Montgomery"
+date: "2023-06-21"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+### Shootings continue to be at the forefront of American politics. NYPD has on offer a dataset containing shooting data from 2006 through present day comprising over 27,000 records. This data will be used for this analysis. 
+
+# Import Data
+```{r}
+library(tidyverse)
+```
+
+## Get current data
+### I will start by reading the data in the main .csv files for the NYPD Shooting Incidents The data can be found at https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+
+## Importing the data to R
+### The steps below will import the data from the data-set into R for me to tidy and transform
+
+## Retrieving the data
+```{r}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPD_Data <- read_csv(url_in)
+```
+
+## Using tibble to view the data along with the data types for each column
+```{r}
+tibble(NYPD_Data)
+```
+# Tidy and Transform the data
+
+## OCCUR_DATE is loaded as chr so the data type needs to be changed for easier manipulation.
+## Also, renaming OCCUR_DATE and OCCUR_TIME will also make the final data easier to understand
+```{r}
+NYPD_Data <- NYPD_Data %>%
+rename( Incident_Date = OCCUR_DATE,
+Incident_Time = OCCUR_TIME)
+
+NYPD_Data$Incident_Date <- as.Date(NYPD_Data$Incident_Date, format="%m/%d/%Y")
+```
+## Next is a check to see if there are missing values in a few columns that are important for my analysis
+## The first will validate that there are no missing incident time values
+```{r}
+filter(NYPD_Data, is.na(Incident_Time ))
+```
+## Next, I'll check the BORO column
+```{r}
+filter(NYPD_Data, is.na(Incident_Time ))
+```
+## Now that I feel comfortable with the columns not having missing data, I want to transform the location to try to better standardize the information
+## First, I'll check the values that are available to determine a groupingunique
+```{r}
+unique(NYPD_Data$LOCATION_DESC)
+```
+## There are multiple versions of NA that should be combined. 
+```{r}
+NYPD_Data$LOCATION_DESC <- replace(NYPD_Data$LOCATION_DESC, NYPD_Data$LOCATION_DESC == "NONE", NA)
+NYPD_Data$LOCATION_DESC <- replace(NYPD_Data$LOCATION_DESC, NYPD_Data$LOCATION_DESC == "NONE", NA)
+```
+## Dropping columns that I won't be using for any of the analysis and adding a column for the month and year for time analysis
+```{r}
+NYPD_Data <- NYPD_Data %>% select(!c(INCIDENT_KEY, JURISDICTION_CODE, X_COORD_CD:Lon_Lat))
+```
+## I'll also create a new column that combines only the month and year together along with combining the sex and race for victims
+```{r}
+NYPD_Data$Incident_Month_Year <- c(format(as.Date(NYPD_Data$Incident_Date), "%B-%Y"))
+NYPD_Data$VIC_RACE_SEX <- paste(NYPD_Data$VIC_RACE, NYPD_Data$VIC_SEX)
+```
+
+#Visualize and analyse the data
+
+## The first plot is looking at the total number of shootings across the 5 boroughs to give an idea of where shootings are most common
+```{r}
+ggplot(NYPD_Data, aes(x =BORO, fill = "Number of Shootings")) +
+geom_bar(position = "dodge") +
+labs(title = "Shooting Incidents Throughout New York's Boroughs")
+
+```  
+
+## When running this, the easiest thing to note is that Brooklyn has the most. However, Brooklyn and Queens are the two most populated but the Bronx, which is the 4th most populated, has the second most shootings. This leads me to believe that there is a better predictor of shootings. 
+
+## From here, I chose to look at the race of shooting victims to see if there was anything that stood out and it was immediately clear that Black Americans were involved in shootings and a much higher rate than other races.  
+```{r}
+# group on boro and victim race
+NYPD_Group <- NYPD_Data %>%
+group_by(BORO, VIC_RACE) %>%
+summarise(total_shootings = n())
+
+
+ggplot(NYPD_Group, aes(x=VIC_RACE, y=total_shootings, fill = VIC_RACE)) +
+geom_bar(stat="identity") +
+xlab("Victim Race") +
+ylab("Total Shootings") +
+ggtitle("Shootings by Race")
+
+```
+
+
+## Seeing this, I wanted to determine if race was a statistically significant predictor of the likelihood that a person is involved in a shooting. 
+```{r}
+lm_model <- lm(total_shootings ~ VIC_RACE, data = NYPD_Group)
+summary(lm_model)
+```
+
+## The P value was less than 0.05 meaning that I could reject the NULL hypothesis. 
+
+## Just for my own visual understanding, I added in a final chart showing Black Americans in NYC versus all other races combined to see the disparity more clearly. 
+```{r}
+# create the dataset and transform race to NA if not BLACK
+NYPD_Group2 <- NYPD_Group %>%
+mutate(VIC_RACE = case_when(
+VIC_RACE == "BLACK" ~ VIC_RACE,
+FALSE ~ "OTHER"
+))
+
+# chart the results 
+ggplot(NYPD_Group2, aes(x=VIC_RACE, y=total_shootings, fill = VIC_RACE)) +
+geom_bar(stat="identity") +
+xlab("Victim Race") +
+ylab("Total Shootings") +
+ggtitle("Shootings by Race")
+```
+
+# Bias Reporting
+
+## One issue with any crime data is determining if the race data is self reported or observed. When the data is observed, there tends to be significant bias in the findings and the initial reporting. The observer's bias is introduced into the data with no way to account for it. I could not determine if this data was self reported or not, but most crime data that I have used in my work has been observed. 
+
+## It is also impossible for me to say that I am not biased on this as I came into this analysis with the belief that race does play a factor. That was something I had to be cognisant of as I worked through the data to ensure I didn't let it cloud my judgment. 
